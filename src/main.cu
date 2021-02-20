@@ -6,15 +6,16 @@
 
 void initialize_matrix(float *matrix, float *vector, int size, float init)
 {
+#pragma omp parallel for
     for (int i = 0; i < size; i++)
     {
         for (int j = 0; j < size; j++)
         {
-            matrix[i * size + j] = init * static_cast<float>(((i % 4 + j % 4) % 8) / 6);
+            matrix[i * size + j] = init * static_cast<float>((((i + 1) % 4 + j % 4) % 8)) / 6.0f;
         }
-        init = init / 2 + 1;
-        vector[i] = init * static_cast<float>((i % 16) / 15);
-        init = init / 2 + 1;
+        init = init / 2.8f + 0.87f;
+        vector[i] = init * static_cast<float>((i % 16 + 1)) / 16.0f;
+        init = init / 2.8f + 1.23f;
     }
 }
 
@@ -69,11 +70,17 @@ int main()
     const auto answer_host = std::make_unique<float[]>(matrix_size);
 
     initialize_matrix(matrix_host.get(), vector_host.get(), matrix_size, 0.3);
+    for (std::size_t i = 0; i < matrix_size; i++)
+    {
+        answer_host[i] = 0.0;
+    }
 
     CHECK_CUDA_ERROR(::cudaMemcpy(matrix_dev.get(), matrix_host.get(), sizeof(float) * matrix_size * matrix_size,
                                   cudaMemcpyHostToDevice));
     CHECK_CUDA_ERROR(
         ::cudaMemcpy(vector_dev.get(), vector_host.get(), sizeof(float) * matrix_size, cudaMemcpyHostToDevice));
+    CHECK_CUDA_ERROR(
+        ::cudaMemcpy(answer_dev.get(), answer_host.get(), sizeof(float) * matrix_size, cudaMemcpyHostToDevice));
 
     constexpr double datasize_GB = max_iter * sizeof(float) * matrix_size * matrix_size / (1024.0 * 1024.0 * 1024.0);
 
@@ -90,14 +97,13 @@ int main()
     }
 
     {
-        int min_grid_size, block_size;
-        CHECK_CUDA_ERROR(cudaOccupancyMaxPotentialBlockSize(&min_grid_size, &block_size, sgemv_dev));
-        dim3 grid(16, 7);
+        dim3 grid(8, 7);
         dim3 block(32, 32);
 
         {
             // warm up
-            sgemv_dev<<<grid, block>>>(matrix_dev.get(), vector_dev.get(), answer_dev.get(), matrix_size);
+            const auto answer_dev_tmp = cuda::make_unique<float[]>(matrix_size);
+            sgemv_dev<<<grid, block>>>(matrix_dev.get(), vector_dev.get(), answer_dev_tmp.get(), matrix_size);
         }
 
         cudaEvent_t start, stop;
@@ -123,6 +129,18 @@ int main()
 
         std::cout << "elapsed: " << elapsed << "[ms]" << std::endl;
         std::cout << "throughput: " << (datasize_GB / (elapsed / 1000.0)) << "[GB/s]" << std::endl;
+    }
+
+    {
+        auto answer_dev_host = std::make_unique<float[]>(matrix_size);
+        CHECK_CUDA_ERROR(
+            cudaMemcpy(answer_dev_host.get(), answer_dev.get(), sizeof(float) * matrix_size, cudaMemcpyDeviceToHost));
+        float ans = 0;
+        for (std::size_t i = 0; i < matrix_size; i++)
+        {
+            ans += std::abs(answer_host[i] - answer_dev_host[i]) / std::min(answer_host[i], answer_dev_host[i]);
+        }
+        std::cout << "diff: " << (ans / matrix_size) << std::endl;
     }
 
     return 0;
