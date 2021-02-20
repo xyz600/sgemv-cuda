@@ -21,7 +21,7 @@ add_executable(sgemv ${CU_SOURCES} ${CU_HEADERS})
 target_include_directories(sgemv SYSTEM
                            PUBLIC ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})
 target_include_directories(sgemv
-                           PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/matrix_cpu)
+                           PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
 set_target_properties(sgemv PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
 set_target_properties(sgemv PROPERTIES CUDA_ARCHITECTURES 61)
