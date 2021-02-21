@@ -52,7 +52,7 @@ struct ResourceManager
     int num_thread_in_group_;
 };
 
-__global__ void sgemv_dev(const float *__restrict__ A, const float *__restrict__ x, float *y, const int m, const int n)
+__global__ void sgemv_dev(const int m, const int n, const float *__restrict__ A, const float *__restrict__ x, float *y)
 {
     // CTA 単位で、 block_size * block_size の行列を更新する
     constexpr int block_size = 64;
