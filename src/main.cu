@@ -76,7 +76,7 @@ int main()
 
     {
         dim3 grid(8, 7);
-        dim3 block(32, 32);
+        dim3 block(32, 4);
 
         {
             // warm up
