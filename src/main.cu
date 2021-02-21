@@ -5,7 +5,7 @@
 #include "cuda_utility.cuh"
 
 __global__ void sgemv_dev(const float *__restrict__ matrix, const float *__restrict__ vector, float *result,
-                          const int size);
+                          const int n, const int m);
 
 void initialize_matrix(float *matrix, float *vector, int size, float init)
 {
@@ -22,14 +22,14 @@ void initialize_matrix(float *matrix, float *vector, int size, float init)
     }
 }
 
-void sgemv_host(const float *matrix, const float *vector, float *result, const std::size_t size)
+void sgemv_host(const float *matrix, const float *vector, float *result, const std::size_t n, const std::size_t m)
 {
 #pragma omp parallel for
-    for (std::size_t i = 0; i < size; i++)
+    for (std::size_t i = 0; i < n; i++)
     {
-        for (std::size_t j = 0; j < size; j++)
+        for (std::size_t j = 0; j < m; j++)
         {
-            result[i] += matrix[i * size + j] * vector[j];
+            result[i] += matrix[i * m + j] * vector[j];
         }
     }
 }
@@ -66,7 +66,7 @@ int main()
         const auto start = std::chrono::system_clock::now();
         for (std::size_t iter = 0; iter < max_iter; iter++)
         {
-            sgemv_host(matrix_host.get(), vector_host.get(), answer_host.get(), matrix_size);
+            sgemv_host(matrix_host.get(), vector_host.get(), answer_host.get(), matrix_size, matrix_size);
         }
         const auto end = std::chrono::system_clock::now();
         const auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count() / 1000.0;
@@ -81,7 +81,8 @@ int main()
         {
             // warm up
             const auto answer_dev_tmp = cuda::make_unique<float[]>(matrix_size);
-            sgemv_dev<<<grid, block>>>(matrix_dev.get(), vector_dev.get(), answer_dev_tmp.get(), matrix_size);
+            sgemv_dev<<<grid, block>>>(matrix_dev.get(), vector_dev.get(), answer_dev_tmp.get(), matrix_size,
+                                       matrix_size);
         }
 
         cudaEvent_t start, stop;
@@ -92,7 +93,7 @@ int main()
         CHECK_CUDA_ERROR(cudaEventRecord(start));
         for (std::size_t iter = 0; iter < max_iter; iter++)
         {
-            sgemv_dev<<<grid, block>>>(matrix_dev.get(), vector_dev.get(), answer_dev.get(), matrix_size);
+            sgemv_dev<<<grid, block>>>(matrix_dev.get(), vector_dev.get(), answer_dev.get(), matrix_size, matrix_size);
         }
         CHECK_CUDA_ERROR(cudaGetLastError());
 
