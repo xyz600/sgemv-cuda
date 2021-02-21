@@ -52,7 +52,7 @@ struct ResourceManager
     int num_thread_in_group_;
 };
 
-__global__ void sgemv_dev(const float *__restrict__ A, const float *__restrict__ x, float *y, const int n, const int m)
+__global__ void sgemv_dev(const float *__restrict__ A, const float *__restrict__ x, float *y, const int m, const int n)
 {
     // CTA 単位で、 block_size * block_size の行列を更新する
     constexpr int block_size = 64;
@@ -88,9 +88,9 @@ __global__ void sgemv_dev(const float *__restrict__ A, const float *__restrict__
         const int column_index = producer_threadIdx / block_size;
 
         // Producer
-        for (int i = blockIdx.y * block_size; i < n; i += gridDim.y * block_size)
+        for (int i = blockIdx.y * block_size; i < m; i += gridDim.y * block_size)
         {
-            for (int j = blockIdx.x * block_size; j < m; j += gridDim.x * block_size)
+            for (int j = blockIdx.x * block_size; j < n; j += gridDim.x * block_size)
             {
                 // 各バッファの最初の1回(合計2回)は完了通知がないので待つ必要がない
                 if (2 <= execute_block_num)
@@ -102,7 +102,7 @@ __global__ void sgemv_dev(const float *__restrict__ A, const float *__restrict__
                 for (int ii = 0; ii < column_width; ii++)
                 {
                     sh_A[resource_idx][row_index][ii + column_index * column_width] =
-                        A[(i + ii + column_index * column_width) * m + j + row_index];
+                        A[(i + ii + column_index * column_width) * n + j + row_index];
                 }
                 // ベクトルを sh_x に保存
                 for (int jj = producer_threadIdx; jj < block_size; jj += producer_num_thread)
@@ -128,7 +128,7 @@ __global__ void sgemv_dev(const float *__restrict__ A, const float *__restrict__
         {
             float yi = 0;
 
-            for (int j = blockIdx.x * block_size; j < m; j += gridDim.x * block_size)
+            for (int j = blockIdx.x * block_size; j < n; j += gridDim.x * block_size)
             {
                 manager[resource_idx].wait_produced();
 
