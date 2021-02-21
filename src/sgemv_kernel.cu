@@ -56,10 +56,11 @@ __global__ void sgemv_dev(const float *__restrict__ A, const float *__restrict__
 {
     // CTA 単位で、 block_size * block_size の行列を更新する
     constexpr int block_size = 64;
+    constexpr int column_width = block_size / 2;
 
     assert(blockDim.x == warpSize);
     // use producer / consumer model
-    assert(blockDim.y == (block_size / warpSize) * 2);
+    assert(blockDim.y == (block_size / warpSize) * 2 * 2);
 
     // for double buffering
     // remove bank conflict, increment inner sh_A size
@@ -83,6 +84,8 @@ __global__ void sgemv_dev(const float *__restrict__ A, const float *__restrict__
     if (threadIdx.y < blockDim.y / 2)
     {
         const int producer_threadIdx = threadIdx.y * blockDim.x + threadIdx.x;
+        const int row_index = producer_threadIdx % block_size;
+        const int column_index = producer_threadIdx / block_size;
 
         // Producer
         for (int i = blockIdx.y * block_size; i < size; i += gridDim.y * block_size)
@@ -96,9 +99,10 @@ __global__ void sgemv_dev(const float *__restrict__ A, const float *__restrict__
                 }
 
                 // 行列を転置して sh_A に保存
-                for (int ii = 0; ii < block_size; ii++)
+                for (int ii = 0; ii < column_width; ii++)
                 {
-                    sh_A[resource_idx][producer_threadIdx][ii] = A[(i + ii) * size + j + producer_threadIdx];
+                    sh_A[resource_idx][row_index][ii + column_index * column_width] =
+                        A[(i + ii + column_index * column_width) * size + j + row_index];
                 }
                 // ベクトルを sh_x に保存
                 for (int jj = producer_threadIdx; jj < block_size; jj += producer_num_thread)
@@ -116,6 +120,8 @@ __global__ void sgemv_dev(const float *__restrict__ A, const float *__restrict__
     else
     {
         const int consumer_threadIdx = (threadIdx.y - blockDim.y / 2) * blockDim.x + threadIdx.x;
+        const int row_index = consumer_threadIdx % block_size;
+        const int column_index = consumer_threadIdx / block_size;
 
         // Consumer
         for (int i = blockIdx.y * block_size; i < size; i += gridDim.y * block_size)
@@ -127,9 +133,10 @@ __global__ void sgemv_dev(const float *__restrict__ A, const float *__restrict__
                 manager[resource_idx].wait_produced();
 
                 // y[i] = \sum_j a^T_ji x_j
-                for (int jj = 0; jj < block_size; jj++)
+                for (int jj = 0; jj < column_width; jj++)
                 {
-                    yi += sh_A[resource_idx][jj][consumer_threadIdx] * sh_x[resource_idx][jj];
+                    yi += sh_A[resource_idx][jj + column_index * column_width][row_index] *
+                          sh_x[resource_idx][jj + column_index * column_width];
                 }
 
                 // 各バッファから見て直前の処理が終わったことをアナウンスする
@@ -138,7 +145,7 @@ __global__ void sgemv_dev(const float *__restrict__ A, const float *__restrict__
                 execute_block_num++;
                 resource_idx = inverse(resource_idx);
             }
-            atomicAdd(&y[i + consumer_threadIdx], yi);
+            atomicAdd(&y[i + row_index], yi);
         }
     }
 }
