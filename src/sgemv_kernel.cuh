@@ -2,82 +2,69 @@
 #include <cassert>
 
 constexpr int block_size = 32;
-constexpr int div_size = 4;
-constexpr int val_per_thread = block_size / div_size / 2;
+
+__device__ int reduce_warp(float value)
+{
+    value += __shfl_down_sync(0xffffffff, value, 16);
+    value += __shfl_down_sync(0xffffffff, value, 8);
+    value += __shfl_down_sync(0xffffffff, value, 4);
+    value += __shfl_down_sync(0xffffffff, value, 2);
+    value += __shfl_down_sync(0xffffffff, value, 1);
+    return value;
+}
 __global__ void sgemv_dev(const int m, const int n, const float *__restrict__ A, const float *__restrict__ x, float *y)
 {
     assert(gridDim.z == 1);
     assert(blockDim.x == warpSize);
-    assert(blockDim.y == div_size);
+    assert(blockDim.y == warpSize);
     assert(m % block_size == 0);
     assert(n % block_size == 0);
 
-    // warp 単位で連続 32 個の x を読む
-    float xelem = 0, xelem_next = 0;
+    float x_left = 0, x_right = 0;
+    float a_left = 0, a_right = 0;
 
-    float upper[val_per_thread] = {};
-    float lower[val_per_thread] = {};
-    float upper_result[val_per_thread] = {};
-    float lower_result[val_per_thread] = {};
+    float result = 0;
 
-    A += (blockIdx.y * block_size + threadIdx.y * val_per_thread) * n + blockIdx.x * block_size + threadIdx.x;
+    A += (blockIdx.y * block_size + threadIdx.y) * n + blockIdx.x * block_size + threadIdx.x;
     x += blockIdx.x * block_size + threadIdx.x;
 
-    const int width = gridDim.x * block_size;
+    const int width = 2 * gridDim.x * block_size;
 
     __shared__ float global_result[block_size];
-    for (int i = threadIdx.y * blockDim.x + threadIdx.x; i < block_size; i += blockDim.x * blockDim.y)
+    if (threadIdx.y == 0)
     {
-        global_result[i] = 0;
+        global_result[threadIdx.x] = 0;
     }
 
-    // load upper
-    for (int k = 0; k < val_per_thread; k++)
+    // load left
+    a_left = *A;
+    x_left = *x;
+
+    for (int j = blockIdx.x * block_size; j < n; j += width)
     {
-        upper[k] = A[k * n];
-    }
-    xelem_next = *x;
+        // load right
+        a_right = A[width / 2];
+        x_right = x[width / 2];
 
-    for (int j = blockIdx.x; j < n; j += width)
-    {
-        // load lower
-        for (int k = 0; k < val_per_thread; k++)
-        {
-            lower[k] = A[(k + block_size / 2) * n];
-        }
+        // compute left
+        result += a_left * x_left;
 
-        // compute upper
-        xelem = xelem_next;
-        for (int k = 0; k < val_per_thread; k++)
-        {
-            upper_result[k] += upper[k] * xelem;
-        }
-
-        // if needed load upper
+        // if needed load left
         if (j + width < n)
         {
-            for (int k = 0; k < val_per_thread; k++)
-            {
-                upper[k] = A[k * n + width];
-            }
-            xelem_next = x[width];
+            a_left = A[width];
+            x_left = x[width];
         }
 
-        // compute lower
-        for (int k = 0; k < val_per_thread; k++)
-        {
-            lower_result[k] += lower[k] * xelem;
-        }
+        // compute right
+        result += a_right * x_right;
 
         x += width;
         A += width;
     }
 
-    for (int k = 0; k < val_per_thread; k++)
-    {
-        atomicAdd(&global_result[threadIdx.y * val_per_thread + k], upper_result[k]);
-        atomicAdd(&global_result[block_size / 2 + threadIdx.y * val_per_thread + k], lower_result[k]);
-    }
+    // 重いかも？
+    global_result[threadIdx.y] = reduce_warp(result);
     __syncthreads();
 
     if (threadIdx.y == 0)
