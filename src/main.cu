@@ -3,6 +3,7 @@
 #include <iostream>
 
 #include "cuda_utility.cuh"
+#include "sgemv_kernel.cuh"
 
 __global__ void sgemv_dev(const int m, const int n, const float *__restrict__ A, const float *__restrict__ x, float *y);
 
@@ -38,8 +39,8 @@ void sgemv_host(const std::size_t n, const std::size_t m, const float *matrix, c
 
 int main()
 {
-    constexpr std::size_t row_size = 16384;
-    constexpr std::size_t column_size = row_size * 4;
+    constexpr std::size_t row_size = 32768;
+    constexpr std::size_t column_size = row_size;
     constexpr std::size_t max_iter = 5;
 
     const auto matrix_dev = cuda::make_unique<float[]>(row_size * column_size);
@@ -78,8 +79,8 @@ int main()
     }
 
     {
-        dim3 grid(8, 7);
-        dim3 block(32, 8);
+        dim3 grid(1, (row_size + block_size - 1) / block_size);
+        dim3 block(block_size, div_size);
 
         {
             // warm up
@@ -119,9 +120,10 @@ int main()
         float ans = 0;
         for (std::size_t i = 0; i < row_size; i++)
         {
-            ans += std::abs(answer_host[i] - answer_dev_host[i]) / std::min(answer_host[i], answer_dev_host[i]);
+            ans = std::max(
+                ans, std::abs(answer_host[i] - answer_dev_host[i]) / std::min(answer_host[i], answer_dev_host[i]));
         }
-        std::cout << "diff: " << (ans / row_size) << std::endl;
+        std::cout << "diff: " << ans << std::endl;
     }
 
     return 0;
