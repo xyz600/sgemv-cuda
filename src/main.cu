@@ -79,7 +79,7 @@ int main()
     }
 
     {
-        dim3 grid(1, (row_size + block_size - 1) / block_size);
+        dim3 grid(2, (row_size + block_size - 1) / block_size);
         dim3 block(block_size, div_size);
 
         {
@@ -118,6 +118,7 @@ int main()
         CHECK_CUDA_ERROR(
             cudaMemcpy(answer_dev_host.get(), answer_dev.get(), sizeof(float) * row_size, cudaMemcpyDeviceToHost));
         float ans = 0;
+
         for (std::size_t i = 0; i < row_size; i++)
         {
             ans = std::max(
