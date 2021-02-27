@@ -88,8 +88,8 @@ int main()
     }
 
     {
-        dim3 grid(1, (row_size + block_size - 1) / block_size);
-        dim3 block(block_size, block_size);
+        dim3 grid(64, (row_size + block_size_y - 1) / block_size_y);
+        dim3 block(base_block_size, base_block_size);
 
         {
             // warm up
