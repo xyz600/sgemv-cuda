@@ -9,28 +9,14 @@ __global__ void sgemv_dev(const int m, const int n, const float *__restrict__ A,
 
 void initialize_matrix(float *matrix, float *vector, int row_size, int column_size, float init)
 {
-// debug
-// for (int i = 0; i < row_size; i++)
-// {
-//     for (int j = 0; j < column_size; j++)
-//     {
-//         matrix[i * column_size + j] = 1;
-//     }
-//     vector[i] = i;
-// }
-#pragma omp parallel for
+    // debug
     for (int i = 0; i < row_size; i++)
     {
         for (int j = 0; j < column_size; j++)
         {
-            matrix[i * column_size + j] = init * static_cast<float>((((i + 1) % 4 + j % 4) % 8)) / 6.0f;
+            matrix[i * column_size + j] = (i + j) % 10 + 1;
         }
-        init = init / 2.8f + 0.87f;
-    }
-    for (int j = 0; j < column_size; j++)
-    {
-        vector[j] = init * static_cast<float>((j % 16 + 1)) / 16.0f;
-        init = init / 2.8f + 1.23f;
+        vector[i] = i;
     }
 }
 
@@ -88,7 +74,7 @@ int main()
     }
 
     {
-        dim3 grid(64, (row_size + block_size_y - 1) / block_size_y);
+        dim3 grid(128, (row_size + block_size_y - 1) / block_size_y);
         dim3 block(base_block_size, base_block_size);
 
         {
@@ -132,8 +118,7 @@ int main()
         {
             ans = std::max(
                 ans, std::abs(answer_host[i] - answer_dev_host[i]) / std::min(answer_host[i], answer_dev_host[i]));
-            // std::cerr << "( " << (i / column_size) << ", " << (i % column_size) << ") " << answer_host[i] << " "
-            //           << answer_dev_host[i] << std::endl;
+            // std::cerr << i << " " << answer_host[i] << " " << answer_dev_host[i] << std::endl;
         }
         std::cout << "diff: " << ans << std::endl;
     }
